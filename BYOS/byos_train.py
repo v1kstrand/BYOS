@@ -426,6 +426,11 @@ def main(exp_cfg_path: str) -> None:
                 "hf_storage_block_size",
                 "hf_streaming_read_max_retries",
                 "hf_streaming_read_retry_interval_s",
+                "hf_holdout_mode",
+                "hf_holdout_salt",
+                "hf_holdout_id_field",
+                "hf_val_pct",
+                "hf_test_pct",
                 "hf_restart_on_stream_error",
                 "hf_restart_sleep_s",
                 "hf_max_restarts",
@@ -561,6 +566,11 @@ def main(exp_cfg_path: str) -> None:
     hf_storage_block_size = int(cfg.get("hf_storage_block_size", 0))
     hf_streaming_read_max_retries = int(cfg.get("hf_streaming_read_max_retries", 20))
     hf_streaming_read_retry_interval_s = float(cfg.get("hf_streaming_read_retry_interval_s", 5.0))
+    hf_holdout_mode = str(cfg.get("hf_holdout_mode", "none"))
+    hf_holdout_salt = str(cfg.get("hf_holdout_salt", ""))
+    hf_holdout_id_field = str(cfg.get("hf_holdout_id_field", "id"))
+    hf_val_pct = float(cfg.get("hf_val_pct", 0.0))
+    hf_test_pct = float(cfg.get("hf_test_pct", 0.0))
     hf_restart_on_stream_error = bool(cfg.get("hf_restart_on_stream_error", True))
     hf_restart_sleep_s = float(cfg.get("hf_restart_sleep_s", 5.0))
     hf_max_restarts = int(cfg.get("hf_max_restarts", 0))
@@ -585,6 +595,13 @@ def main(exp_cfg_path: str) -> None:
             f"max_retries={hf_streaming_read_max_retries} "
             f"retry_interval_s={max(hf_streaming_read_retry_interval_s, 0.0):.1f}"
         )
+        holdout_mode = str(hf_holdout_mode or "none").strip().lower()
+        if holdout_mode not in ("", "none", "off", "false", "0"):
+            print(
+                "INFO: HF streaming holdout enabled: "
+                f"mode={holdout_mode} id_field={hf_holdout_id_field} "
+                f"val_pct={hf_val_pct} test_pct={hf_test_pct} salt={hf_holdout_salt}"
+            )
         if hf_restart_on_stream_error:
             max_tag = "inf" if hf_max_restarts <= 0 else str(hf_max_restarts)
             print(
@@ -611,6 +628,11 @@ def main(exp_cfg_path: str) -> None:
             storage_block_size=hf_storage_block_size,
             streaming_read_max_retries=hf_streaming_read_max_retries,
             streaming_read_retry_interval_s=hf_streaming_read_retry_interval_s,
+            holdout_mode=hf_holdout_mode,
+            holdout_salt=hf_holdout_salt,
+            holdout_id_field=hf_holdout_id_field,
+            val_pct=hf_val_pct,
+            test_pct=hf_test_pct,
             restart_on_stream_error=hf_restart_on_stream_error,
             restart_sleep_s=hf_restart_sleep_s,
             max_restarts=hf_max_restarts,

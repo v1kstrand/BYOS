@@ -1,4 +1,5 @@
 import json
+import hashlib
 import math
 import os
 import random
@@ -409,6 +410,12 @@ class HFStreamingTokenBufferSampler(IterableDataset):
         storage_block_size: int,
         streaming_read_max_retries: int,
         streaming_read_retry_interval_s: float,
+        holdout_mode: str,
+        holdout_role: str,
+        holdout_salt: str,
+        holdout_id_field: str,
+        val_pct: float,
+        test_pct: float,
         restart_on_stream_error: bool,
         restart_sleep_s: float,
         max_restarts: int,
@@ -434,6 +441,12 @@ class HFStreamingTokenBufferSampler(IterableDataset):
         self.storage_block_size = int(storage_block_size)
         self.streaming_read_max_retries = int(streaming_read_max_retries)
         self.streaming_read_retry_interval_s = float(streaming_read_retry_interval_s)
+        self.holdout_mode = str(holdout_mode or "none").strip().lower()
+        self.holdout_role = str(holdout_role or "train").strip().lower()
+        self.holdout_salt = str(holdout_salt or "")
+        self.holdout_id_field = str(holdout_id_field or "id")
+        self.val_pct = float(val_pct)
+        self.test_pct = float(test_pct)
         self.restart_on_stream_error = bool(restart_on_stream_error)
         self.restart_sleep_s = float(restart_sleep_s)
         self.max_restarts = int(max_restarts)
@@ -452,6 +465,33 @@ class HFStreamingTokenBufferSampler(IterableDataset):
         min_prefill = self.min_span * max(2, self.batch_size)
         if self.prefill_tokens < min_prefill:
             self.prefill_tokens = min_prefill
+
+    def _holdout_bucket(self, ex) -> str:
+        if self.holdout_mode in ("", "none", "off", "false", "0"):
+            return "train"
+        if self.holdout_mode not in ("hash_id", "hash", "id_hash"):
+            raise ValueError(f"unsupported holdout_mode: {self.holdout_mode}")
+        if not self.holdout_salt:
+            raise ValueError("holdout_salt must be set when holdout_mode=hash_id")
+
+        if not isinstance(ex, dict):
+            return "train"
+        ex_id = ex.get(self.holdout_id_field)
+        if ex_id is None:
+            return "train"
+
+        # Stable mapping to [0, 1). Do not use Python's built-in hash().
+        key = f"{self.holdout_salt}:{ex_id}".encode("utf-8", errors="ignore")
+        h = hashlib.sha256(key).digest()
+        u = int.from_bytes(h[:8], "big", signed=False) / float(2**64)
+
+        test_frac = max(0.0, min(1.0, self.test_pct / 100.0))
+        val_frac = max(0.0, min(1.0, self.val_pct / 100.0))
+        if u < test_frac:
+            return "test"
+        if u < (test_frac + val_frac):
+            return "val"
+        return "train"
 
     @staticmethod
     def _load_dataset_streaming(
@@ -540,8 +580,18 @@ class HFStreamingTokenBufferSampler(IterableDataset):
             if self.max_items > 0:
                 it = itertools.islice(it, self.max_items)
             try:
+                yielded = 0
                 for ex in it:
+                    if self.holdout_role in ("", "all", "any"):
+                        bucket_ok = True
+                    else:
+                        bucket_ok = self._holdout_bucket(ex) == self.holdout_role
+                    if not bucket_ok:
+                        continue
                     yield ex
+                    yielded += 1
+                    if self.max_items > 0 and yielded >= self.max_items:
+                        break
                 epoch += 1
                 restarts = 0
             except Exception as exc:
@@ -673,6 +723,11 @@ def build_dataloaders_from_hf_streaming(
     storage_block_size: int = 0,
     streaming_read_max_retries: int = 20,
     streaming_read_retry_interval_s: float = 5.0,
+    holdout_mode: str = "none",
+    holdout_salt: str = "",
+    holdout_id_field: str = "id",
+    val_pct: float = 0.0,
+    test_pct: float = 0.0,
     restart_on_stream_error: bool = True,
     restart_sleep_s: float = 5.0,
     max_restarts: int = 0,
@@ -686,21 +741,35 @@ def build_dataloaders_from_hf_streaming(
     max_train_items: int = 0,
     max_val_items: int = 0,
 ):
-    # Probe val split early so we can fallback cleanly.
-    resolved_val_split = val_split
-    try:
-        HFStreamingTokenBufferSampler._load_dataset_streaming(
-            dataset=dataset,
-            dataset_config=dataset_config,
-            split=val_split,
-            trust_remote_code=trust_remote_code,
-            storage_block_size=storage_block_size,
-            streaming_read_max_retries=streaming_read_max_retries,
-            streaming_read_retry_interval_s=streaming_read_retry_interval_s,
-        )
-    except Exception:
-        print("INFO: NO VAL -> Autofallback to train split for validation")
+    holdout_mode = str(holdout_mode or "none").strip().lower()
+    if holdout_mode not in ("", "none", "off", "false", "0", "hash_id", "hash", "id_hash"):
+        raise ValueError(f"unsupported holdout_mode: {holdout_mode}")
+
+    if holdout_mode in ("hash_id", "hash", "id_hash"):
+        if not str(holdout_salt or ""):
+            raise ValueError("holdout_salt must be set when holdout_mode=hash_id")
+        if val_pct < 0 or test_pct < 0:
+            raise ValueError("val_pct and test_pct must be >= 0")
+        if (val_pct + test_pct) >= 100.0:
+            raise ValueError("val_pct + test_pct must be < 100")
+        # In holdout mode, val/test are derived from the train split.
         resolved_val_split = train_split
+    else:
+        # Probe val split early so we can fallback cleanly.
+        resolved_val_split = val_split
+        try:
+            HFStreamingTokenBufferSampler._load_dataset_streaming(
+                dataset=dataset,
+                dataset_config=dataset_config,
+                split=val_split,
+                trust_remote_code=trust_remote_code,
+                storage_block_size=storage_block_size,
+                streaming_read_max_retries=streaming_read_max_retries,
+                streaming_read_retry_interval_s=streaming_read_retry_interval_s,
+            )
+        except Exception:
+            print("INFO: NO VAL -> Autofallback to train split for validation")
+            resolved_val_split = train_split
 
     train_ds = HFStreamingTokenBufferSampler(
         dataset=dataset,
@@ -716,6 +785,12 @@ def build_dataloaders_from_hf_streaming(
         storage_block_size=storage_block_size,
         streaming_read_max_retries=streaming_read_max_retries,
         streaming_read_retry_interval_s=streaming_read_retry_interval_s,
+        holdout_mode=holdout_mode,
+        holdout_role="train",
+        holdout_salt=holdout_salt,
+        holdout_id_field=holdout_id_field,
+        val_pct=val_pct,
+        test_pct=test_pct,
         restart_on_stream_error=restart_on_stream_error,
         restart_sleep_s=restart_sleep_s,
         max_restarts=max_restarts,
@@ -741,6 +816,12 @@ def build_dataloaders_from_hf_streaming(
         storage_block_size=storage_block_size,
         streaming_read_max_retries=streaming_read_max_retries,
         streaming_read_retry_interval_s=streaming_read_retry_interval_s,
+        holdout_mode=holdout_mode,
+        holdout_role="val" if holdout_mode in ("hash_id", "hash", "id_hash") else "all",
+        holdout_salt=holdout_salt,
+        holdout_id_field=holdout_id_field,
+        val_pct=val_pct,
+        test_pct=test_pct,
         restart_on_stream_error=restart_on_stream_error,
         restart_sleep_s=restart_sleep_s,
         max_restarts=max_restarts,
@@ -768,3 +849,77 @@ def build_dataloaders_from_hf_streaming(
         persistent_workers=num_workers > 0,
     )
     return train_loader, val_loader
+
+
+def build_dataloader_from_hf_streaming_role(
+    *,
+    dataset: str,
+    dataset_config: str,
+    split: str,
+    tokenizer,
+    batch_size: int,
+    n_local: int,
+    h_len_cfg,
+    seed: int,
+    num_workers: int,
+    pin_memory: bool,
+    trust_remote_code: bool = False,
+    text_field: str = "text",
+    storage_block_size: int = 0,
+    streaming_read_max_retries: int = 20,
+    streaming_read_retry_interval_s: float = 5.0,
+    holdout_mode: str = "none",
+    holdout_role: str = "all",
+    holdout_salt: str = "",
+    holdout_id_field: str = "id",
+    val_pct: float = 0.0,
+    test_pct: float = 0.0,
+    restart_on_stream_error: bool = True,
+    restart_sleep_s: float = 5.0,
+    max_restarts: int = 0,
+    shuffle_buffer: int = 0,
+    token_buffer_size: int = 2_000_000,
+    prefill_tokens: int = 500_000,
+    refresh_tokens: int = 50_000,
+    max_doc_tokens: int = 0,
+    add_eos: bool = True,
+    max_items: int = 0,
+):
+    ds = HFStreamingTokenBufferSampler(
+        dataset=dataset,
+        dataset_config=dataset_config,
+        split=split,
+        tokenizer=tokenizer,
+        text_field=text_field,
+        batch_size=batch_size,
+        n_local=n_local,
+        h_len_cfg=h_len_cfg,
+        seed=seed,
+        trust_remote_code=trust_remote_code,
+        storage_block_size=storage_block_size,
+        streaming_read_max_retries=streaming_read_max_retries,
+        streaming_read_retry_interval_s=streaming_read_retry_interval_s,
+        holdout_mode=holdout_mode,
+        holdout_role=holdout_role,
+        holdout_salt=holdout_salt,
+        holdout_id_field=holdout_id_field,
+        val_pct=val_pct,
+        test_pct=test_pct,
+        restart_on_stream_error=restart_on_stream_error,
+        restart_sleep_s=restart_sleep_s,
+        max_restarts=max_restarts,
+        shuffle_buffer=shuffle_buffer,
+        token_buffer_size=token_buffer_size,
+        prefill_tokens=prefill_tokens,
+        refresh_tokens=refresh_tokens,
+        max_doc_tokens=max_doc_tokens,
+        add_eos=add_eos,
+        max_items=max_items,
+    )
+    return DataLoader(
+        ds,
+        batch_size=None,
+        num_workers=num_workers,
+        pin_memory=pin_memory,
+        persistent_workers=num_workers > 0,
+    )

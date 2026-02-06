@@ -15,6 +15,11 @@ hf_text_field: text
 hf_storage_block_size: 0
 hf_streaming_read_max_retries: 1
 hf_streaming_read_retry_interval_s: 1
+hf_holdout_mode: none
+hf_holdout_salt:
+hf_holdout_id_field: id
+hf_val_pct: 0.2
+hf_test_pct: 0.2
 hf_restart_on_stream_error: true
 hf_restart_sleep_s: 5
 hf_max_restarts: 0
