@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+.venv/
+venv/
+
+*.pt
+*.pth
+*.ckpt
+state_dict/
+checkpoints/
+
+_token_cache/
+.cache/
+.datasets/

@@ -1,0 +1,61 @@
+amp_dtype: bf16
+batch_size: 28
+ckpt_dir: /notebooks/BYOS/state_dict
+comet_experiment_key: 
+comet_optional: true
+comet_project_name: byos
+compile: true
+d_model: 1536
+dataset: allenai/dolma
+dataset_config: v1_6
+dataset_dir:
+hf_streaming: true
+hf_trust_remote_code: true
+hf_text_field: text
+hf_shuffle_buffer: 10000
+hf_val_shuffle_buffer: 0
+hf_token_buffer_size: 2000000
+hf_prefill_tokens: 500000
+hf_refresh_tokens: 50000
+hf_max_doc_tokens: 0
+hf_add_eos: true
+hf_max_train_items: 0
+hf_max_val_items: 0
+device: auto
+eval_every: 250
+eval_steps: 50
+eval_fixed: false
+experiment_name: byos_dolma_v1_6
+h_len: [0, 2048]
+label_smoothing: 0.0
+log_every: 50
+lr: 2e-4
+max_grad_norm: 1.0
+max_train_files: 0
+max_train_items: 4000
+max_val_files: 0
+max_val_items: 500
+min_lr: 1e-5
+n_heads: 24
+n_layers: 24
+n_local: 1024
+n_state: 192
+non_stop: true
+num_workers: 10
+pin_memory: true
+resume_path: 
+save_best: false
+save_freq: 25
+save_n_store: 0
+seed: 67
+steps: 10000
+text_path:
+tokenizer: sentencepiece
+tokens_per_step: 262144
+train_split: train
+val_ratio: 0.05
+val_split: validation
+warmup_steps: 800
+weight_decay: 0.1
+attn_drop: 0.0
+ffn_drop: 0.1
