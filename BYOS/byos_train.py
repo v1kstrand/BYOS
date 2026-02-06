@@ -413,6 +413,7 @@ def main(exp_cfg_path: str) -> None:
                 "hf_streaming",
                 "hf_trust_remote_code",
                 "hf_text_field",
+                "hf_storage_block_size",
                 "hf_shuffle_buffer",
                 "hf_val_shuffle_buffer",
                 "hf_token_buffer_size",
@@ -542,6 +543,7 @@ def main(exp_cfg_path: str) -> None:
     hf_streaming = bool(cfg.get("hf_streaming", False))
     hf_trust_remote_code = bool(cfg.get("hf_trust_remote_code", False))
     hf_text_field = str(cfg.get("hf_text_field", "text"))
+    hf_storage_block_size = int(cfg.get("hf_storage_block_size", 0))
     hf_shuffle_buffer = int(cfg.get("hf_shuffle_buffer", 0))
     hf_val_shuffle_buffer = int(cfg.get("hf_val_shuffle_buffer", 0))
     hf_token_buffer_size = int(cfg.get("hf_token_buffer_size", 2_000_000))
@@ -556,6 +558,8 @@ def main(exp_cfg_path: str) -> None:
         print(
             f"INFO: HF streaming enabled: dataset={dataset} config={dataset_config} split={train_split} text_field={hf_text_field}"
         )
+        if hf_storage_block_size == 0:
+            print("INFO: HF streaming storage_options: block_size=0 (disable HTTP range requests)")
         if not hf_trust_remote_code:
             print(
                 "INFO: hf_trust_remote_code is false; script-based datasets (e.g. Dolma) may prompt/hang unless you set it true."
@@ -574,6 +578,7 @@ def main(exp_cfg_path: str) -> None:
             val_split=val_split,
             trust_remote_code=hf_trust_remote_code,
             text_field=hf_text_field,
+            storage_block_size=hf_storage_block_size,
             shuffle_buffer=hf_shuffle_buffer,
             val_shuffle_buffer=hf_val_shuffle_buffer,
             token_buffer_size=hf_token_buffer_size,

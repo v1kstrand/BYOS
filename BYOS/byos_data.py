@@ -405,6 +405,7 @@ class HFStreamingTokenBufferSampler(IterableDataset):
         h_len_cfg,
         seed: int,
         trust_remote_code: bool,
+        storage_block_size: int,
         shuffle_buffer: int,
         token_buffer_size: int,
         prefill_tokens: int,
@@ -424,6 +425,7 @@ class HFStreamingTokenBufferSampler(IterableDataset):
         self.h_len_cfg = h_len_cfg
         self.seed = int(seed)
         self.trust_remote_code = bool(trust_remote_code)
+        self.storage_block_size = int(storage_block_size)
         self.shuffle_buffer = int(shuffle_buffer)
         self.token_buffer_size = int(token_buffer_size)
         self.prefill_tokens = int(prefill_tokens)
@@ -440,7 +442,15 @@ class HFStreamingTokenBufferSampler(IterableDataset):
         if self.prefill_tokens < min_prefill:
             self.prefill_tokens = min_prefill
 
-    def _make_stream(self, *, epoch_seed: int, num_shards: int, shard_index: int):
+    @staticmethod
+    def _load_dataset_streaming(
+        *,
+        dataset: str,
+        dataset_config: str,
+        split: str,
+        trust_remote_code: bool,
+        storage_block_size: int,
+    ):
         try:
             from datasets import load_dataset
         except ImportError as exc:
@@ -448,12 +458,45 @@ class HFStreamingTokenBufferSampler(IterableDataset):
                 "datasets is required for HF streaming. Install with: pip install datasets"
             ) from exc
 
-        ds = load_dataset(
-            self.dataset,
-            self.dataset_config,
+        storage_options = {"block_size": int(storage_block_size)}
+
+        # Newer `datasets` exposes `storage_options` directly. Older versions require `DownloadConfig`.
+        try:
+            return load_dataset(
+                dataset,
+                dataset_config,
+                split=split,
+                streaming=True,
+                trust_remote_code=trust_remote_code,
+                storage_options=storage_options,
+            )
+        except TypeError:
+            try:
+                from datasets import DownloadConfig
+
+                dl_cfg = DownloadConfig(storage_options=storage_options)
+                return load_dataset(
+                    dataset,
+                    dataset_config,
+                    split=split,
+                    streaming=True,
+                    trust_remote_code=trust_remote_code,
+                    download_config=dl_cfg,
+                )
+            except Exception as exc:
+                raise RuntimeError(
+                    "HF streaming failed while configuring storage_options. "
+                    "This can happen if your installed `datasets`/`fsspec` stack doesn't support "
+                    "storage_options for streaming. Try upgrading: pip install -U datasets fsspec."
+                ) from exc
+
+    def _make_stream(self, *, epoch_seed: int, num_shards: int, shard_index: int):
+        ds = self._load_dataset_streaming(
+            dataset=self.dataset,
+            dataset_config=self.dataset_config,
             split=self.split,
-            streaming=True,
             trust_remote_code=self.trust_remote_code,
+            storage_block_size=self.storage_block_size,
         )
         if self.shuffle_buffer > 0:
             ds = ds.shuffle(buffer_size=self.shuffle_buffer, seed=epoch_seed)
@@ -584,6 +627,7 @@ def build_dataloaders_from_hf_streaming(
     val_split: str = "validation",
     trust_remote_code: bool = False,
     text_field: str = "text",
+    storage_block_size: int = 0,
     shuffle_buffer: int = 0,
     val_shuffle_buffer: int = 0,
     token_buffer_size: int = 2_000_000,
@@ -597,14 +641,12 @@ def build_dataloaders_from_hf_streaming(
     # Probe val split early so we can fallback cleanly.
     resolved_val_split = val_split
     try:
-        from datasets import load_dataset
-
-        load_dataset(
-            dataset,
-            dataset_config,
+        HFStreamingTokenBufferSampler._load_dataset_streaming(
+            dataset=dataset,
+            dataset_config=dataset_config,
             split=val_split,
-            streaming=True,
             trust_remote_code=trust_remote_code,
+            storage_block_size=storage_block_size,
         )
     except Exception:
         print("INFO: NO VAL -> Autofallback to train split for validation")
@@ -621,6 +663,7 @@ def build_dataloaders_from_hf_streaming(
         h_len_cfg=h_len_cfg,
         seed=seed,
         trust_remote_code=trust_remote_code,
+        storage_block_size=storage_block_size,
         shuffle_buffer=shuffle_buffer,
         token_buffer_size=token_buffer_size,
         prefill_tokens=prefill_tokens,
@@ -640,6 +683,7 @@ def build_dataloaders_from_hf_streaming(
         h_len_cfg=h_len_cfg,
         seed=seed + 1000,
         trust_remote_code=trust_remote_code,
+        storage_block_size=storage_block_size,
         shuffle_buffer=val_shuffle_buffer,
         token_buffer_size=token_buffer_size,
         prefill_tokens=prefill_tokens,
