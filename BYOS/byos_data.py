@@ -714,6 +714,8 @@ def build_dataloaders_from_hf_streaming(
     n_local: int,
     h_len_cfg,
     seed: int,
+    train_seed: int | None = None,
+    val_seed: int | None = None,
     num_workers: int,
     pin_memory: bool,
     train_split: str = "train",
@@ -741,6 +743,12 @@ def build_dataloaders_from_hf_streaming(
     max_train_items: int = 0,
     max_val_items: int = 0,
 ):
+    # Backward-compat: callers can pass a single `seed` and we derive split seeds.
+    if train_seed is None:
+        train_seed = int(seed)
+    if val_seed is None:
+        val_seed = int(seed) + 1000
+
     holdout_mode = str(holdout_mode or "none").strip().lower()
     if holdout_mode not in ("", "none", "off", "false", "0", "hash_id", "hash", "id_hash"):
         raise ValueError(f"unsupported holdout_mode: {holdout_mode}")
@@ -780,7 +788,7 @@ def build_dataloaders_from_hf_streaming(
         batch_size=batch_size,
         n_local=n_local,
         h_len_cfg=h_len_cfg,
-        seed=seed,
+        seed=train_seed,
         trust_remote_code=trust_remote_code,
         storage_block_size=storage_block_size,
         streaming_read_max_retries=streaming_read_max_retries,
@@ -811,7 +819,7 @@ def build_dataloaders_from_hf_streaming(
         batch_size=batch_size,
         n_local=n_local,
         h_len_cfg=h_len_cfg,
-        seed=seed + 1000,
+        seed=val_seed,
         trust_remote_code=trust_remote_code,
         storage_block_size=storage_block_size,
         streaming_read_max_retries=streaming_read_max_retries,

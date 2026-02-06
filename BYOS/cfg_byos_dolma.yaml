@@ -15,6 +15,7 @@ hf_text_field: text
 hf_storage_block_size: 0
 hf_streaming_read_max_retries: 1
 hf_streaming_read_retry_interval_s: 1
+hf_resume_train_seed: step
 hf_holdout_mode: none
 hf_holdout_salt:
 hf_holdout_id_field: id

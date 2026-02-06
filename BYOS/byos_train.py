@@ -426,6 +426,7 @@ def main(exp_cfg_path: str) -> None:
                 "hf_storage_block_size",
                 "hf_streaming_read_max_retries",
                 "hf_streaming_read_retry_interval_s",
+                "hf_resume_train_seed",
                 "hf_holdout_mode",
                 "hf_holdout_salt",
                 "hf_holdout_id_field",
@@ -522,11 +523,26 @@ def main(exp_cfg_path: str) -> None:
         torch.backends.cuda.enable_flash_sdp(True)
         torch.backends.cuda.enable_mem_efficient_sdp(False)
         torch.backends.cuda.enable_math_sdp(False)
-        
+
         dynamo_config = torch._dynamo.config
         dynamo_config.compiled_autograd = True
         dynamo_config.capture_scalar_outputs = False
         dynamo_config.cache_size_limit = 512
+
+    # Optional: avoid replaying the same initial HF streaming shuffle order on resume by offsetting
+    # the *train* seed by the resumed step count. Val remains stable so curves stay comparable.
+    hf_resume_train_seed = str(cfg.get("hf_resume_train_seed", "none")).strip().lower()
+    resume_start_step = 0
+    if resume_checkpoint is not None:
+        resume_start_step = int(resume_checkpoint.get("step", -1)) + 1
+        if resume_start_step < 0:
+            resume_start_step = 0
+    train_seed = seed
+    if hf_resume_train_seed in ("step", "curr_step", "start_step", "step_offset"):
+        train_seed = int(seed + resume_start_step)
+    elif hf_resume_train_seed not in ("", "none", "off", "false", "0"):
+        raise ValueError(f"unsupported hf_resume_train_seed: {hf_resume_train_seed}")
+    val_seed = int(seed + 1000)
 
     if device_cfg == "auto":
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -588,6 +604,12 @@ def main(exp_cfg_path: str) -> None:
         print(
             f"INFO: HF streaming enabled: dataset={dataset} config={dataset_config} split={train_split} text_field={hf_text_field}"
         )
+        if resume_checkpoint is not None and hf_resume_train_seed in ("step", "curr_step", "start_step", "step_offset"):
+            print(
+                "INFO: HF streaming resume seed offset enabled: "
+                f"mode={hf_resume_train_seed} resume_start_step={resume_start_step} "
+                f"train_seed={train_seed} val_seed={val_seed}"
+            )
         if hf_storage_block_size == 0:
             print("INFO: HF streaming storage_options: block_size=0 (disable HTTP range requests)")
         print(
@@ -619,6 +641,8 @@ def main(exp_cfg_path: str) -> None:
             n_local=n_local,
             h_len_cfg=h_len_cfg,
             seed=seed,
+            train_seed=train_seed,
+            val_seed=val_seed,
             num_workers=num_workers,
             pin_memory=pin_memory,
             train_split=train_split,
