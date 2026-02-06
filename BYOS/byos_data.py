@@ -407,6 +407,8 @@ class HFStreamingTokenBufferSampler(IterableDataset):
         seed: int,
         trust_remote_code: bool,
         storage_block_size: int,
+        streaming_read_max_retries: int,
+        streaming_read_retry_interval_s: float,
         restart_on_stream_error: bool,
         restart_sleep_s: float,
         max_restarts: int,
@@ -430,6 +432,8 @@ class HFStreamingTokenBufferSampler(IterableDataset):
         self.seed = int(seed)
         self.trust_remote_code = bool(trust_remote_code)
         self.storage_block_size = int(storage_block_size)
+        self.streaming_read_max_retries = int(streaming_read_max_retries)
+        self.streaming_read_retry_interval_s = float(streaming_read_retry_interval_s)
         self.restart_on_stream_error = bool(restart_on_stream_error)
         self.restart_sleep_s = float(restart_sleep_s)
         self.max_restarts = int(max_restarts)
@@ -457,13 +461,22 @@ class HFStreamingTokenBufferSampler(IterableDataset):
         split: str,
         trust_remote_code: bool,
         storage_block_size: int,
+        streaming_read_max_retries: int,
+        streaming_read_retry_interval_s: float,
     ):
         try:
+            import datasets
             from datasets import load_dataset
         except ImportError as exc:
             raise RuntimeError(
                 "datasets is required for HF streaming. Install with: pip install datasets"
             ) from exc
+
+        # Reduce time spent in HF's internal retry loop. BYOS wraps streaming with an outer restart guard.
+        if hasattr(datasets, "config") and hasattr(datasets.config, "STREAMING_READ_MAX_RETRIES"):
+            datasets.config.STREAMING_READ_MAX_RETRIES = int(streaming_read_max_retries)
+        if hasattr(datasets, "config") and hasattr(datasets.config, "STREAMING_READ_RETRY_INTERVAL"):
+            datasets.config.STREAMING_READ_RETRY_INTERVAL = float(streaming_read_retry_interval_s)
 
         storage_options = {"block_size": int(storage_block_size)}
 
@@ -504,6 +517,8 @@ class HFStreamingTokenBufferSampler(IterableDataset):
             split=self.split,
             trust_remote_code=self.trust_remote_code,
             storage_block_size=self.storage_block_size,
+            streaming_read_max_retries=self.streaming_read_max_retries,
+            streaming_read_retry_interval_s=self.streaming_read_retry_interval_s,
         )
         if self.shuffle_buffer > 0:
             ds = ds.shuffle(buffer_size=self.shuffle_buffer, seed=epoch_seed)
@@ -656,6 +671,8 @@ def build_dataloaders_from_hf_streaming(
     trust_remote_code: bool = False,
     text_field: str = "text",
     storage_block_size: int = 0,
+    streaming_read_max_retries: int = 20,
+    streaming_read_retry_interval_s: float = 5.0,
     restart_on_stream_error: bool = True,
     restart_sleep_s: float = 5.0,
     max_restarts: int = 0,
@@ -678,6 +695,8 @@ def build_dataloaders_from_hf_streaming(
             split=val_split,
             trust_remote_code=trust_remote_code,
             storage_block_size=storage_block_size,
+            streaming_read_max_retries=streaming_read_max_retries,
+            streaming_read_retry_interval_s=streaming_read_retry_interval_s,
         )
     except Exception:
         print("INFO: NO VAL -> Autofallback to train split for validation")
@@ -695,6 +714,8 @@ def build_dataloaders_from_hf_streaming(
         seed=seed,
         trust_remote_code=trust_remote_code,
         storage_block_size=storage_block_size,
+        streaming_read_max_retries=streaming_read_max_retries,
+        streaming_read_retry_interval_s=streaming_read_retry_interval_s,
         restart_on_stream_error=restart_on_stream_error,
         restart_sleep_s=restart_sleep_s,
         max_restarts=max_restarts,
@@ -718,6 +739,8 @@ def build_dataloaders_from_hf_streaming(
         seed=seed + 1000,
         trust_remote_code=trust_remote_code,
         storage_block_size=storage_block_size,
+        streaming_read_max_retries=streaming_read_max_retries,
+        streaming_read_retry_interval_s=streaming_read_retry_interval_s,
         restart_on_stream_error=restart_on_stream_error,
         restart_sleep_s=restart_sleep_s,
         max_restarts=max_restarts,

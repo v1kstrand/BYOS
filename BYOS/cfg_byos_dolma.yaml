@@ -13,6 +13,8 @@ hf_streaming: true
 hf_trust_remote_code: true
 hf_text_field: text
 hf_storage_block_size: 0
+hf_streaming_read_max_retries: 1
+hf_streaming_read_retry_interval_s: 1
 hf_restart_on_stream_error: true
 hf_restart_sleep_s: 5
 hf_max_restarts: 0

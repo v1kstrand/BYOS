@@ -414,6 +414,8 @@ def main(exp_cfg_path: str) -> None:
                 "hf_trust_remote_code",
                 "hf_text_field",
                 "hf_storage_block_size",
+                "hf_streaming_read_max_retries",
+                "hf_streaming_read_retry_interval_s",
                 "hf_restart_on_stream_error",
                 "hf_restart_sleep_s",
                 "hf_max_restarts",
@@ -547,6 +549,8 @@ def main(exp_cfg_path: str) -> None:
     hf_trust_remote_code = bool(cfg.get("hf_trust_remote_code", False))
     hf_text_field = str(cfg.get("hf_text_field", "text"))
     hf_storage_block_size = int(cfg.get("hf_storage_block_size", 0))
+    hf_streaming_read_max_retries = int(cfg.get("hf_streaming_read_max_retries", 20))
+    hf_streaming_read_retry_interval_s = float(cfg.get("hf_streaming_read_retry_interval_s", 5.0))
     hf_restart_on_stream_error = bool(cfg.get("hf_restart_on_stream_error", True))
     hf_restart_sleep_s = float(cfg.get("hf_restart_sleep_s", 5.0))
     hf_max_restarts = int(cfg.get("hf_max_restarts", 0))
@@ -566,6 +570,11 @@ def main(exp_cfg_path: str) -> None:
         )
         if hf_storage_block_size == 0:
             print("INFO: HF streaming storage_options: block_size=0 (disable HTTP range requests)")
+        print(
+            "INFO: HF streaming reader retry: "
+            f"max_retries={hf_streaming_read_max_retries} "
+            f"retry_interval_s={max(hf_streaming_read_retry_interval_s, 0.0):.1f}"
+        )
         if hf_restart_on_stream_error:
             max_tag = "inf" if hf_max_restarts <= 0 else str(hf_max_restarts)
             print(
@@ -590,6 +599,8 @@ def main(exp_cfg_path: str) -> None:
             trust_remote_code=hf_trust_remote_code,
             text_field=hf_text_field,
             storage_block_size=hf_storage_block_size,
+            streaming_read_max_retries=hf_streaming_read_max_retries,
+            streaming_read_retry_interval_s=hf_streaming_read_retry_interval_s,
             restart_on_stream_error=hf_restart_on_stream_error,
             restart_sleep_s=hf_restart_sleep_s,
             max_restarts=hf_max_restarts,
