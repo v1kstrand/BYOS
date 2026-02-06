@@ -4,6 +4,7 @@ import os
 import sys
 import random
 import time
+import warnings
 from pathlib import Path
 
 import torch
@@ -383,6 +384,15 @@ def load_merged_config(run_path: Path) -> tuple[dict, dict]:
 
 
 def main(exp_cfg_path: str) -> None:
+    # PyTorch can emit a deprecation warning internally for `SequentialLR` when switching
+    # schedulers around warmup milestones (it passes an explicit epoch internally).
+    # This filter keeps logs clean; it does not change training behavior.
+    warnings.filterwarnings(
+        "ignore",
+        message=r".*The epoch parameter in `scheduler\.step\(\)` was not necessary.*",
+        category=UserWarning,
+    )
+
     cfg_path = Path(exp_cfg_path)
     base_cfg, cfg = load_merged_config(cfg_path)
     run_cfg = dict(cfg)
