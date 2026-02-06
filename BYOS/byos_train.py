@@ -414,6 +414,9 @@ def main(exp_cfg_path: str) -> None:
                 "hf_trust_remote_code",
                 "hf_text_field",
                 "hf_storage_block_size",
+                "hf_restart_on_stream_error",
+                "hf_restart_sleep_s",
+                "hf_max_restarts",
                 "hf_shuffle_buffer",
                 "hf_val_shuffle_buffer",
                 "hf_token_buffer_size",
@@ -544,6 +547,9 @@ def main(exp_cfg_path: str) -> None:
     hf_trust_remote_code = bool(cfg.get("hf_trust_remote_code", False))
     hf_text_field = str(cfg.get("hf_text_field", "text"))
     hf_storage_block_size = int(cfg.get("hf_storage_block_size", 0))
+    hf_restart_on_stream_error = bool(cfg.get("hf_restart_on_stream_error", True))
+    hf_restart_sleep_s = float(cfg.get("hf_restart_sleep_s", 5.0))
+    hf_max_restarts = int(cfg.get("hf_max_restarts", 0))
     hf_shuffle_buffer = int(cfg.get("hf_shuffle_buffer", 0))
     hf_val_shuffle_buffer = int(cfg.get("hf_val_shuffle_buffer", 0))
     hf_token_buffer_size = int(cfg.get("hf_token_buffer_size", 2_000_000))
@@ -560,6 +566,11 @@ def main(exp_cfg_path: str) -> None:
         )
         if hf_storage_block_size == 0:
             print("INFO: HF streaming storage_options: block_size=0 (disable HTTP range requests)")
+        if hf_restart_on_stream_error:
+            max_tag = "inf" if hf_max_restarts <= 0 else str(hf_max_restarts)
+            print(
+                f"INFO: HF streaming restart_on_error enabled: sleep_s={max(hf_restart_sleep_s, 0.0):.1f} max_restarts={max_tag}"
+            )
         if not hf_trust_remote_code:
             print(
                 "INFO: hf_trust_remote_code is false; script-based datasets (e.g. Dolma) may prompt/hang unless you set it true."
@@ -579,6 +590,9 @@ def main(exp_cfg_path: str) -> None:
             trust_remote_code=hf_trust_remote_code,
             text_field=hf_text_field,
             storage_block_size=hf_storage_block_size,
+            restart_on_stream_error=hf_restart_on_stream_error,
+            restart_sleep_s=hf_restart_sleep_s,
+            max_restarts=hf_max_restarts,
             shuffle_buffer=hf_shuffle_buffer,
             val_shuffle_buffer=hf_val_shuffle_buffer,
             token_buffer_size=hf_token_buffer_size,

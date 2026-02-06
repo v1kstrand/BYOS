@@ -13,6 +13,9 @@ hf_streaming: true
 hf_trust_remote_code: true
 hf_text_field: text
 hf_storage_block_size: 0
+hf_restart_on_stream_error: true
+hf_restart_sleep_s: 5
+hf_max_restarts: 0
 hf_shuffle_buffer: 10000
 hf_val_shuffle_buffer: 0
 hf_token_buffer_size: 2000000

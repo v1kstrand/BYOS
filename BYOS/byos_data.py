@@ -2,6 +2,7 @@ import json
 import math
 import os
 import random
+import time
 from pathlib import Path
 
 import numpy as np
@@ -406,6 +407,9 @@ class HFStreamingTokenBufferSampler(IterableDataset):
         seed: int,
         trust_remote_code: bool,
         storage_block_size: int,
+        restart_on_stream_error: bool,
+        restart_sleep_s: float,
+        max_restarts: int,
         shuffle_buffer: int,
         token_buffer_size: int,
         prefill_tokens: int,
@@ -426,6 +430,9 @@ class HFStreamingTokenBufferSampler(IterableDataset):
         self.seed = int(seed)
         self.trust_remote_code = bool(trust_remote_code)
         self.storage_block_size = int(storage_block_size)
+        self.restart_on_stream_error = bool(restart_on_stream_error)
+        self.restart_sleep_s = float(restart_sleep_s)
+        self.max_restarts = int(max_restarts)
         self.shuffle_buffer = int(shuffle_buffer)
         self.token_buffer_size = int(token_buffer_size)
         self.prefill_tokens = int(prefill_tokens)
@@ -508,6 +515,7 @@ class HFStreamingTokenBufferSampler(IterableDataset):
 
     def _iter_examples_forever(self, *, base_seed: int, num_shards: int, shard_index: int):
         epoch = 0
+        restarts = 0
         while True:
             epoch_seed = base_seed + epoch
             ds = self._make_stream(
@@ -516,9 +524,29 @@ class HFStreamingTokenBufferSampler(IterableDataset):
             it = iter(ds)
             if self.max_items > 0:
                 it = itertools.islice(it, self.max_items)
-            for ex in it:
-                yield ex
-            epoch += 1
+            try:
+                for ex in it:
+                    yield ex
+                epoch += 1
+                restarts = 0
+            except Exception as exc:
+                if not self.restart_on_stream_error:
+                    raise
+                restarts += 1
+                if self.max_restarts > 0 and restarts > self.max_restarts:
+                    raise RuntimeError(
+                        f"HF streaming exceeded max_restarts={self.max_restarts}"
+                    ) from exc
+
+                max_tag = "inf" if self.max_restarts <= 0 else str(self.max_restarts)
+                sleep_s = max(self.restart_sleep_s, 0.0)
+                print(
+                    f"INFO: HF stream error ({type(exc).__name__}) -> restarting in {sleep_s:.1f}s "
+                    f"[{restarts}/{max_tag}]"
+                )
+                if sleep_s > 0:
+                    time.sleep(sleep_s)
+                epoch += 1
 
     def _extract_text(self, ex) -> str:
         if isinstance(ex, dict):
@@ -628,6 +656,9 @@ def build_dataloaders_from_hf_streaming(
     trust_remote_code: bool = False,
     text_field: str = "text",
     storage_block_size: int = 0,
+    restart_on_stream_error: bool = True,
+    restart_sleep_s: float = 5.0,
+    max_restarts: int = 0,
     shuffle_buffer: int = 0,
     val_shuffle_buffer: int = 0,
     token_buffer_size: int = 2_000_000,
@@ -664,6 +695,9 @@ def build_dataloaders_from_hf_streaming(
         seed=seed,
         trust_remote_code=trust_remote_code,
         storage_block_size=storage_block_size,
+        restart_on_stream_error=restart_on_stream_error,
+        restart_sleep_s=restart_sleep_s,
+        max_restarts=max_restarts,
         shuffle_buffer=shuffle_buffer,
         token_buffer_size=token_buffer_size,
         prefill_tokens=prefill_tokens,
@@ -684,6 +718,9 @@ def build_dataloaders_from_hf_streaming(
         seed=seed + 1000,
         trust_remote_code=trust_remote_code,
         storage_block_size=storage_block_size,
+        restart_on_stream_error=restart_on_stream_error,
+        restart_sleep_s=restart_sleep_s,
+        max_restarts=max_restarts,
         shuffle_buffer=val_shuffle_buffer,
         token_buffer_size=token_buffer_size,
         prefill_tokens=prefill_tokens,
