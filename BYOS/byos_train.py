@@ -246,8 +246,36 @@ def setup_comet(cfg: dict):
 
 
 def save_checkpoint(
-    path: Path, model, optimizer, scheduler, scaler, step: int, val_loss: float, cfg: dict
+    path: Path,
+    model,
+    optimizer,
+    scheduler,
+    scaler,
+    step: int,
+    val_loss: float,
+    cfg: dict,
+    *,
+    fixed_eval_batches=None,
 ):
+    fixed_payload = None
+    if fixed_eval_batches is not None:
+        fixed_payload = []
+        for batch in fixed_eval_batches:
+            if not isinstance(batch, (tuple, list)) or len(batch) < 3:
+                continue
+            h_ids, x_ids, y_ids = batch[0], batch[1], batch[2]
+            h_len = batch[3] if len(batch) > 3 else 0
+            if not (torch.is_tensor(h_ids) and torch.is_tensor(x_ids) and torch.is_tensor(y_ids)):
+                continue
+            fixed_payload.append(
+                (
+                    h_ids.detach().to(device="cpu", dtype=torch.int32).contiguous(),
+                    x_ids.detach().to(device="cpu", dtype=torch.int32).contiguous(),
+                    y_ids.detach().to(device="cpu", dtype=torch.int32).contiguous(),
+                    int(h_len),
+                )
+            )
+
     payload = {
         "step": step,
         "val_loss": float(val_loss),
@@ -257,6 +285,8 @@ def save_checkpoint(
         "scaler": scaler.state_dict() if scaler is not None else None,
         "cfg": cfg,
     }
+    if fixed_payload is not None and len(fixed_payload) > 0:
+        payload["fixed_eval_batches"] = fixed_payload
     import shutil
 
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -727,7 +757,53 @@ def main(exp_cfg_path: str) -> None:
     val_iter = iter(val_loader)
     fixed_eval_batches = None
     if eval_fixed and eval_steps > 0:
-        fixed_eval_batches = [next(val_iter) for _ in range(eval_steps)]
+        loaded = None
+        if resume_checkpoint is not None:
+            loaded = resume_checkpoint.get("fixed_eval_batches")
+
+        ok = True
+        if isinstance(loaded, list) and len(loaded) > 0:
+            if len(loaded) != eval_steps:
+                ok = False
+            else:
+                for b in loaded:
+                    if not isinstance(b, (tuple, list)) or len(b) != 4:
+                        ok = False
+                        break
+                    h_ids, x_ids, y_ids, _h_len = b
+                    if not (
+                        torch.is_tensor(h_ids)
+                        and torch.is_tensor(x_ids)
+                        and torch.is_tensor(y_ids)
+                    ):
+                        ok = False
+                        break
+                    if int(h_ids.shape[0]) != batch_size:
+                        ok = False
+                        break
+                    if tuple(x_ids.shape) != (batch_size, n_local):
+                        ok = False
+                        break
+                    if tuple(y_ids.shape) != (batch_size, n_local):
+                        ok = False
+                        break
+
+            if ok:
+                fixed_eval_batches = [
+                    (
+                        h_ids.to(dtype=torch.int32),
+                        x_ids.to(dtype=torch.int32),
+                        y_ids.to(dtype=torch.int32),
+                        int(h_len),
+                    )
+                    for (h_ids, x_ids, y_ids, h_len) in loaded
+                ]
+                print("INFO: loaded fixed_eval_batches from checkpoint")
+            else:
+                print("INFO: checkpoint fixed_eval_batches mismatch -> resampling")
+
+        if fixed_eval_batches is None:
+            fixed_eval_batches = [next(val_iter) for _ in range(eval_steps)]
 
     tokens_per_batch = batch_size * n_local
     if tokens_per_step > 0:
@@ -1005,6 +1081,7 @@ def main(exp_cfg_path: str) -> None:
                             step,
                             val_loss,
                             cfg,
+                            fixed_eval_batches=fixed_eval_batches if eval_fixed else None,
                         )
                 tqdm.write(f"eval step {step:04d} | val={val_loss:.4f}")
 
@@ -1024,6 +1101,7 @@ def main(exp_cfg_path: str) -> None:
                     step,
                     best_val,
                     cfg,
+                    fixed_eval_batches=fixed_eval_batches if eval_fixed else None,
                 )
                 cleanup_checkpoints(ckpt_dir, model_name, max(0, save_n_store - 1))
 
