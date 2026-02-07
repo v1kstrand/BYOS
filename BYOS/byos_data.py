@@ -636,6 +636,8 @@ class HFStreamingTokenBufferSampler(IterableDataset):
 
     def _ingest_tokens(self, ring: _TokenRingBuffer, ex_iter, *, target_tokens: int) -> int:
         ingested = 0
+        last_log = 0
+        log_every = 250_000
         while ingested < target_tokens:
             ex = next(ex_iter)
             text = self._extract_text(ex)
@@ -646,6 +648,16 @@ class HFStreamingTokenBufferSampler(IterableDataset):
                 continue
             ring.append(toks)
             ingested += int(toks.numel())
+            if (
+                self.holdout_role == "val"
+                and target_tokens >= log_every
+                and ingested - last_log >= log_every
+            ):
+                last_log = ingested
+                print(
+                    f"INFO: HF val prefill: {ingested}/{target_tokens} tokens "
+                    f"(buffer={self.token_buffer_size} refresh={self.refresh_tokens})"
+                )
         return ingested
 
     def __iter__(self):
@@ -664,7 +676,15 @@ class HFStreamingTokenBufferSampler(IterableDataset):
         )
 
         # Prefill buffer to enable random span sampling.
+        if self.holdout_role == "val":
+            print(
+                "INFO: HF val sampler prefill start: "
+                f"prefill_tokens={self.prefill_tokens} token_buffer_size={self.token_buffer_size} "
+                f"shuffle_buffer={self.shuffle_buffer} storage_block_size={self.storage_block_size}"
+            )
         self._ingest_tokens(ring, ex_iter, target_tokens=self.prefill_tokens)
+        if self.holdout_role == "val":
+            print("INFO: HF val sampler prefill done")
 
         while True:
             h_len = sample_h_len(self.h_len_cfg, generator=gen)

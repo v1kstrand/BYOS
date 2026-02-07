@@ -803,7 +803,18 @@ def main(exp_cfg_path: str) -> None:
                 print("INFO: checkpoint fixed_eval_batches mismatch -> resampling")
 
         if fixed_eval_batches is None:
-            fixed_eval_batches = [next(val_iter) for _ in range(eval_steps)]
+            print(f"INFO: building fixed_eval_batches: eval_steps={eval_steps}")
+            t0 = time.time()
+            fixed_eval_batches = []
+            for _ in tqdm(
+                range(eval_steps),
+                desc="prefetch-val-fixed",
+                dynamic_ncols=True,
+                leave=False,
+            ):
+                fixed_eval_batches.append(next(val_iter))
+            dt = time.time() - t0
+            print(f"INFO: built fixed_eval_batches in {dt:.1f}s")
 
     tokens_per_batch = batch_size * n_local
     if tokens_per_step > 0:
