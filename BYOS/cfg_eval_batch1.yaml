@@ -1,0 +1,17 @@
+batch1:
+  loss_roles: [train, val]
+  loss_steps: 100
+
+  state_role: val
+  state_num_batches: 50
+  state_inference_prompts: 8
+  state_prompt_len: 2048
+  state_gen_len: 256
+
+  retention_delays: "256,1024,2048"
+  retention_samples_per_delay: 200
+
+  ablation_modes: "normal,state_read_off,state_write_off,both_off"
+
+  temperature: 1.0
+  top_k: 0

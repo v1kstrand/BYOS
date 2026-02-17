@@ -105,6 +105,43 @@ These are meant to answer questions like:
 
 See: `BYOS/byos_monitor.py`.
 
+## Batch 1 Evaluation (Dolma)
+
+Batch 1 focuses on:
+
+- Held-out LM loss/perplexity
+- State-usage dynamics (`attn_s_mass`, routing entropy/top-k mass, `delta_s_norm`)
+- Synthetic short-delay retention probes
+- Runtime ablations (`normal`, `state_read_off`, `state_write_off`, `both_off`)
+- Basic efficiency metrics (tokens/s and peak VRAM)
+
+Config:
+
+- `BYOS/cfg_eval_batch1.yaml`
+
+Run all Batch 1 modules with one command:
+
+```bash
+python3 -m BYOS.eval.run_batch1 \
+  --cfg BYOS/cfg_eval_batch1.yaml \
+  --checkpoint weights/byos_dolma_byos_dolma_v1_6_best.pt
+```
+
+Quick smoke mode:
+
+```bash
+python3 -m BYOS.eval.run_batch1 \
+  --cfg BYOS/cfg_eval_batch1.yaml \
+  --checkpoint weights/byos_dolma_byos_dolma_v1_6_best.pt \
+  --quick
+```
+
+Outputs:
+
+- `eval_runs/<run_id>/summary.json`
+- `eval_runs/<run_id>/summary.csv`
+- `eval_runs/<run_id>/raw/*.json`
+
 ## torch.compile Notes
 
 BYOS samples variable `h_len` during training. To keep `torch.compile(..., dynamic=False)` usable (static graphs),
@@ -124,6 +161,7 @@ This section is kept for quick reference:
 - Training: `BYOS/byos_train.py`
 - Data: `BYOS/byos_data.py`
 - Eval: `BYOS/byos_eval.py`
+- Batch 1 eval: `BYOS/eval/*.py`
 - Monitoring: `BYOS/byos_monitor.py`
 - Notebook: `BYOS/byos_v0_5.ipynb`
 - Configs: `BYOS/cfg_byos*.yaml`
